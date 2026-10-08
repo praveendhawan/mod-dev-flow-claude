@@ -1,0 +1,1 @@
+{ "name": "dev-flow", "version": "0.1.0", "description": "Stage-gated dev workflow: status line, approval-gated commit/push, stacked branches, merge cleanup.", "author": { "name": "Praveen Dhawan" } }

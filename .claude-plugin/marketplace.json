@@ -1,0 +1,5 @@
+{
+  "name": "dev-flow-local",
+  "owner": { "name": "Praveen Dhawan" },
+  "plugins": [{ "name": "dev-flow", "source": "./" }]
+}
