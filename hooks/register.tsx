@@ -236,9 +236,16 @@ export const register: Register = on => {
 
     const { Box, Text } = $.ui.resolve(e)
 
+    const parts = text.split(' › ')
+
     return (
       <Box>
-        <Text dimColor>{text}</Text>
+        {parts.map((p, i) => (
+          <Text key={i}>
+            {i > 0 && <Text color="cyan" bold>{' ❯ '}</Text>}
+            <Text dimColor={i < parts.length - 1}>{p}</Text>
+          </Text>
+        ))}
       </Box>
     )
   })
