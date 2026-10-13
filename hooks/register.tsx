@@ -25,16 +25,13 @@ type State = {
 const STAGES: Record<Mode, string[]> = {
   coding: [
     'Code',
-    'Check',
     'Review',
-    'Fix Review Comments',
-    'Second Review',
     'Commit Plan',
     'Commit/Push/MR',
     'Redmine Update',
     'Plan Doc Update',
   ],
-  planning: ['Research', 'Draft Plan', 'Review Plan', 'Fix Review Comments', 'Create Tickets'],
+  planning: ['Research', 'Draft Plan', 'Review Plan', 'Create Tickets'],
 }
 
 const ACTIONS = ['commit', 'push', 'mr', 'cargo', 'delete-branch', 'close-ticket']
@@ -116,7 +113,7 @@ const check = async ($: EngineInterface, s: State, hit: ReturnType<typeof classi
     case 'mr':
     case 'delete-branch':
     case 'cargo': {
-      const ask = { push: 'push?', mr: 'raise the MR?', 'delete-branch': 'delete these branches?', cargo: 'run cargo on the host?' }[hit.kind]
+      const ask = { push: 'push?', mr: 'raise the MR?', 'delete-branch': 'delete these branches?', cargo: 'run cargo on the host, outside docker?' }[hit.kind]
 
       return take(s, hit.kind) ? undefined : needs(hit.kind, ask)
     }
@@ -138,13 +135,15 @@ const rules = (s: State) => {
     'dev-flow mod is active; hooks enforce these rules.',
     `- Status line: feature › step › task › stage. Coding stages: ${STAGES.coding.join(', ')}. Planning stages: ${STAGES.planning.join(', ')}.`,
     '- "start #id": read the Redmine ticket and its parents, then call mcp__dev-flow__set {mode:"coding", ticket, chain:[titles root to leaf]}. No ticket (planning): set {mode:"planning", chain:["<label>"]}.',
-    '- Only the user moves a stage. Ask, wait for approval, then call mcp__dev-flow__advance {quote} with the user\'s exact words (optional `to` stage name, e.g. skip Second Review).',
+    '- Only the user moves a stage. Ask, wait for approval, then call mcp__dev-flow__advance {quote} with the user\'s exact words (optional `to` stage name).',
+    '- Review loop: Code -> Review when the work is ready. Any review comment or discussion from the user -> back to Code: call mcp__dev-flow__advance {to:"Code", quote}, resolve it, then advance to Review again. Repeat until the user asks for the commit plan. These moves need no extra ask: use any words from the user\'s last message as the quote.',
+    '- "make commit plan" (or "commit plan") from the user is the approval to move to Commit Plan: call mcp__dev-flow__advance {to:"Commit Plan", quote} with their words, then show the commit plan. Do not ask them to say "advance to Commit Plan" first.',
     '- Research and planning: ask one clarifying question at a time. No suggestions, no writes, until the user says go ahead.',
     '- Approval covers exactly what you asked. "commit?" yes unlocks commit only; "commit and push?" yes unlocks both. Call mcp__dev-flow__approve {actions, quote, counts}; counts.commit = commits in the approved commit plan. A commit outside the plan asks again.',
-    '- cargo only through docker compose; host cargo needs approve ["cargo"].',
+    '- cargo: run it through `docker compose run --rm dev cargo ...`. That never needs approval, so never ask for it. Only cargo run directly on the host (outside docker) is gated: ask "run cargo on the host, outside docker?" and approve ["cargo"].',
     '- Redmine In Progress needs due_date and estimated_hours: ask the user first, with your suggestion.',
     '- New branch must be based on the previous stacked branch (state `stack`), else baseBranch. Unknown base: ask the user, then set {baseBranch}.',
-    '- Check stage: code docs per docs/skills/*.md (not found: ask the user). Every public method documents what it does, param types and meaning, return type and meaning; every file/class has a doc line. Fix before review. Advance past Check only with docsOk:true.',
+    '- Before Review, code docs per docs/skills/*.md (not found: ask the user). Every public method documents what it does, param types and meaning, return type and meaning; every file/class has a doc line.',
   ]
 
   if (s.merged.length) {
@@ -182,7 +181,6 @@ type Args = {
   merged?: string[]
   quote?: string
   to?: string
-  docsOk?: boolean
   actions?: string[]
   counts?: Record<string, number>
 }
@@ -213,7 +211,7 @@ export const register: Register = on => {
       name: 'advance',
       description: "dev-flow: move to the next stage (or `to`). Only after the user approved; `quote` is their exact words from their last message.",
       isDeferred: false,
-      inputSchema: obj({ quote: str, to: str, docsOk: { type: 'boolean' } }, ['quote']),
+      inputSchema: obj({ quote: str, to: str }, ['quote']),
     })
     await $.tool.register({
       name: 'approve',
@@ -293,9 +291,6 @@ export const register: Register = on => {
 
     if (!said(s.lastPrompt, a.quote ?? '')) return block($, "quote not found in the user's last message. Ask the user to approve first.")
     if (to < 0 || to >= stages.length) return block($, `no such stage. Stages: ${stages.join(', ')}.`)
-    if (stages[s.stage] === 'Check' && to > s.stage && !a.docsOk) {
-      return block($, 'Check stage: verify code docs (docs/skills/*.md, else ask the user), fix gaps, then advance with docsOk:true.')
-    }
 
     // ponytail: approvals live until the next advance, except into Commit/Push/MR; stale ones expire there.
     if (stages[to] !== 'Commit/Push/MR') s.approved = {}
